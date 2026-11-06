@@ -1,0 +1,40 @@
+# ملفات لا تُنسخ داخل صورة Docker
+# التبعيات (ستُثبَّت داخل الصورة من الصفر)
+node_modules
+
+# مخرجات البناء السابقة
+.next
+out
+build
+
+# المستودع والملفات المؤقتة
+.git
+.gitignore
+.DS_Store
+*.tsbuildinfo
+
+# قاعدة البيانات (تُحمَّل عبر volume من المضيف: ./db:/app/db)
+db/*.db
+db/*.db-journal
+
+# ملفات البيئة (تُمرَّر عبر env_file في docker-compose — لا تُخبَّز في الصورة!)
+.env
+.env.*
+
+# الملفات المضغوطة والسجلات
+*.zip
+*.tar.gz
+dev.log
+server.log
+*.log
+
+# مجلدات التطوير المحلية فقط
+download
+upload
+tool-results
+agent-ctx
+.zscripts
+tests
+skills
+mini-services
+examples

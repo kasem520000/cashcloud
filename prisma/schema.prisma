@@ -1,0 +1,811 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ============ المستأجرون والمستخدمون ============
+
+model User {
+  id           String       @id @default(cuid())
+  username     String       @unique
+  email        String?      @unique
+  name         String?
+  passwordHash String
+  isPlatformAdmin Boolean   @default(false)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  sessions     Session[]
+  memberships  Membership[]
+  sales        Sale[]
+  tickets      SupportTicket[]
+  quotations   Quotation[]
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model Company {
+  id            String         @id @default(cuid())
+  name          String
+  slug          String         @unique
+  currency      String         @default("SAR")
+  taxNumber     String?
+  crNumber      String?
+  status        String         @default("active") // active | suspended
+  zatcaEnv      String         @default("simulation") // simulation | production
+  address       String?
+  phone         String?
+  email         String?
+  plan          String         @default("trial") // trial | basic | pro | enterprise
+  planStartedAt DateTime       @default(now())
+  // ===== العنوان الوطني (السعودية) =====
+  buildingNo    String? // رقم المبنى (4 أرقام)
+  streetName    String? // اسم الشارع
+  district      String? // الحي
+  city          String? // المدينة
+  postalCode    String? // الرمز البريدي (5 أرقام)
+  additionalNo  String? // الرقم الإضافي (3 أرقام)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  memberships   Membership[]
+  products      Product[]
+  contacts      Contact[]
+  sales         Sale[]
+  purchases     Purchase[]
+  expenses      Expense[]
+  accounts      Account[]
+  journalEntries JournalEntry[]
+  notifications Notification[]
+  tickets       SupportTicket[]
+  emailLogs     EmailLog[]
+  whatsappLogs  WhatsAppLog[]
+  aiConversations AiConversation[]
+  vatDeclarations VatDeclaration[]
+  payments        Payment[]
+  quotations      Quotation[]
+  employees       Employee[]
+  payrollRuns     PayrollRun[]
+  assets          FixedAsset[]
+  depreciationEntries DepreciationEntry[]
+  recurringInvoices   RecurringInvoice[]
+  branches        Branch[]
+  posShifts       PosShift[]
+  warehouses      Warehouse[]
+  stockLevels     StockLevel[]
+  stockMovements  StockMovement[]
+  // ===== اعتماد زتكا (CSID) للإرسال الفعلي =====
+  zatcaCsid       String? // رمز PCSID/CCSID (Binary Security Token)
+  zatcaSecret     String? // سر الاعتماد
+  zatcaPrivateKey String? // مفتاح التوقيع الخاص (PEM — EC P-384)
+  zatcaCert       String? // شهادة التوقيع (PEM)
+  egsSerial       String? // الرقم التسلسلي لوحدة الفاتورة (مثال: 1|شركة|كاشير1)
+}
+
+model Membership {
+  id        String   @id @default(cuid())
+  userId    String
+  companyId String
+  role      String   @default("VIEWER") // OWNER | ADMIN | ACCOUNTANT | SALES | VIEWER
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, companyId])
+  @@index([companyId])
+}
+
+// ============ المخزون ============
+
+model Product {
+  id            String          @id @default(cuid())
+  companyId     String
+  company       Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name          String
+  sku           String
+  category      String          @default("عام")
+  brand         String?
+  unit          String          @default("قطعة")
+  salePrice     Float           @default(0)
+  purchasePrice Float           @default(0)
+  stock         Float           @default(0)
+  alertQuantity Float           @default(5)
+  isActive      Boolean         @default(true)
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  saleItems     SaleItem[]
+  purchaseItems PurchaseItem[]
+  stockLevels   StockLevel[]
+  stockMovements StockMovement[]
+
+  @@unique([companyId, sku])
+  @@index([companyId])
+}
+
+// ============ العملاء والموردون ============
+
+model Contact {
+  id        String    @id @default(cuid())
+  companyId String
+  company   Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name      String
+  type      String // customer | supplier
+  phone     String?
+  email     String?
+  taxNumber String?
+  address   String?
+  // ===== العنوان الوطني =====
+  buildingNo   String?
+  streetName   String?
+  district     String?
+  city         String?
+  postalCode   String?
+  additionalNo String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  sales     Sale[]
+  purchases Purchase[]
+  payments  Payment[]
+  quotations Quotation[]
+
+  @@index([companyId, type])
+}
+
+// ============ المبيعات ============
+
+model Sale {
+  id            String      @id @default(cuid())
+  companyId     String
+  company       Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  invoiceNo     String
+  kind          String      @default("invoice") // invoice | credit-note (إشعار دائن — مرتجع مبيعات)
+  originalInvoiceNo String? // رقم الفاتورة الأصلية للمرتجع
+  branchId       String? // الفرع/المنفذ الذي أُصدرت منه الفاتورة
+  branch         Branch?     @relation(fields: [branchId], references: [id])
+  posShiftId     String? // الوردية التي أُصدرت خلالها (POS)
+  warehouseId    String? // المستودع المخصوم منه البيع
+  warehouse      Warehouse? @relation(fields: [warehouseId], references: [id])
+  contactId     String?
+  contact       Contact?    @relation(fields: [contactId], references: [id])
+  userId        String?
+  user          User?       @relation(fields: [userId], references: [id])
+  date          DateTime    @default(now())
+  subtotal      Float       @default(0)
+  discount      Float       @default(0)
+  tax           Float       @default(0)
+  total         Float       @default(0)
+  paid          Float       @default(0)
+  status        String      @default("final") // final | draft
+  paymentMethod String      @default("cash") // cash | card | transfer | credit
+  // ===== تعدد العملات =====
+  currency      String      @default("SAR") // عملة الفاتورة
+  exchangeRate  Float       @default(1) // سعر التحويل إلى عملة المنشأة
+  note          String?
+  qrData        String? // رمز QR بصيغة TLV-Base64 (متطلب زتكا — المرحلة الأولى)
+  zatcaStatus   String      @default("PENDING") // PENDING | REPORTED | REJECTED | CLEARED
+  zatcaUuid     String?
+  zatcaHash     String?
+  zatcaSubmittedAt DateTime?
+  zatcaXml      String? // XML الموقّع المُرسل للهيئة (للتدقيق)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  items         SaleItem[]
+  payments      Payment[]
+
+  @@unique([companyId, invoiceNo])
+  @@index([companyId, date])
+  @@index([companyId, kind])
+}
+
+model SaleItem {
+  id        String   @id @default(cuid())
+  saleId    String
+  sale      Sale     @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  productId String?
+  product   Product? @relation(fields: [productId], references: [id])
+  name      String
+  qty       Float    @default(1)
+  unitPrice Float    @default(0)
+  total     Float    @default(0)
+}
+
+// ============ المشتريات ============
+
+model Purchase {
+  id        String        @id @default(cuid())
+  companyId String
+  company   Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  refNo     String
+  kind      String        @default("invoice") // invoice | return (مرتجع مشتريات)
+  originalRefNo String? // رقم فاتورة الشراء الأصلية للمرتجع
+  branchId  String? // الفرع المستلم للبضاعة
+  branch    Branch?       @relation(fields: [branchId], references: [id])
+  warehouseId String? // المستودع المستلم للبضاعة
+  warehouse   Warehouse? @relation(fields: [warehouseId], references: [id])
+  contactId String?
+  contact   Contact?      @relation(fields: [contactId], references: [id])
+  date      DateTime      @default(now())
+  subtotal  Float         @default(0)
+  discount  Float         @default(0)
+  tax       Float         @default(0) // ضريبة القيمة المضافة على المشتريات (مدخلات)
+  total     Float         @default(0)
+  paid      Float         @default(0)
+  status    String        @default("received")
+  // ===== تعدد العملات =====
+  currency  String        @default("SAR") // عملة فاتورة الشراء
+  exchangeRate Float      @default(1) // سعر التحويل إلى عملة المنشأة
+  note      String?
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  items     PurchaseItem[]
+  payments  Payment[]
+
+  @@unique([companyId, refNo])
+  @@index([companyId, date])
+  @@index([companyId, kind])
+}
+
+model PurchaseItem {
+  id         String   @id @default(cuid())
+  purchaseId String
+  purchase   Purchase @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+  productId  String?
+  product    Product? @relation(fields: [productId], references: [id])
+  name       String
+  qty        Float    @default(1)
+  unitCost   Float    @default(0)
+  total      Float    @default(0)
+}
+
+// ============ المصروفات ============
+
+model Expense {
+  id        String   @id @default(cuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  category  String   @default("عام")
+  amount    Float
+  date      DateTime @default(now())
+  refNo     String?
+  note      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([companyId, date])
+}
+
+// ============ المحاسبة (القيد المزدوج) ============
+
+model Account {
+  id        String        @id @default(cuid())
+  companyId String
+  company   Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  code      String
+  name      String
+  type      String // ASSET | LIABILITY | EQUITY | REVENUE | EXPENSE
+  isActive  Boolean       @default(true)
+  createdAt DateTime      @default(now())
+  lines     JournalLine[]
+
+  @@unique([companyId, code])
+  @@index([companyId])
+}
+
+model JournalEntry {
+  id          String        @id @default(cuid())
+  companyId   String
+  company     Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  number      String
+  date        DateTime      @default(now())
+  description String
+  reference   String?
+  source      String        @default("manual") // manual | auto-sale | auto-purchase | auto-expense | auto-payment
+  status      String        @default("draft") // draft | posted
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  lines       JournalLine[]
+
+  @@unique([companyId, number])
+  @@index([companyId, date])
+}
+
+model JournalLine {
+  id          String       @id @default(cuid())
+  entryId     String
+  entry       JournalEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  accountId   String
+  account     Account      @relation(fields: [accountId], references: [id])
+  debit       Float        @default(0)
+  credit      Float        @default(0)
+  description String?
+
+  @@index([accountId])
+}
+
+// ============ المدفوعات (سندات القبض والصرف) ============
+
+model Payment {
+  id         String    @id @default(cuid())
+  companyId  String
+  company    Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  voucherNo  String // RV-00001 (قبض) | PV-00001 (صرف)
+  direction  String // receipt (سند قبض — تحصيل من عميل) | payment (سند صرف — دفع لمورد)
+  contactId  String?
+  contact    Contact? @relation(fields: [contactId], references: [id])
+  saleId     String?
+  sale       Sale?     @relation(fields: [saleId], references: [id])
+  purchaseId String?
+  purchase   Purchase? @relation(fields: [purchaseId], references: [id])
+  amount     Float
+  method     String    @default("cash") // cash | card | transfer
+  date       DateTime  @default(now())
+  note       String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@unique([companyId, voucherNo])
+  @@index([companyId, date])
+  @@index([companyId, direction])
+}
+
+// ============ عروض الأسعار ============
+
+model Quotation {
+  id         String          @id @default(cuid())
+  companyId  String
+  company    Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  quoteNo    String
+  contactId  String?
+  contact    Contact?        @relation(fields: [contactId], references: [id])
+  userId     String?
+  user       User?           @relation(fields: [userId], references: [id])
+  date       DateTime        @default(now())
+  validUntil DateTime?
+  subtotal   Float           @default(0)
+  discount   Float           @default(0)
+  tax        Float           @default(0)
+  total      Float           @default(0)
+  status     String          @default("draft") // draft | sent | accepted | rejected | converted
+  note       String?
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+  items      QuotationItem[]
+
+  @@unique([companyId, quoteNo])
+  @@index([companyId, date])
+  @@index([companyId, status])
+}
+
+model QuotationItem {
+  id          String    @id @default(cuid())
+  quotationId String
+  quotation   Quotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  productId   String?
+  name        String
+  qty         Float     @default(1)
+  unitPrice   Float     @default(0)
+  total       Float     @default(0)
+
+  @@index([quotationId])
+}
+
+// ============ الرواتب (الموارد البشرية) ============
+
+model Employee {
+  id              String   @id @default(cuid())
+  companyId       String
+  company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name            String
+  nationalId      String? // رقم الهوية / الإقامة
+  position        String   @default("موظف")
+  phone           String?
+  iban            String?
+  bankName        String?
+  baseSalary      Float    @default(0) // الراتب الأساسي
+  housingAllowance Float   @default(0) // بدل السكن (خاضع للتأمينات)
+  otherAllowance  Float    @default(0) // بدلات أخرى
+  otherDeduction  Float    @default(0) // استقطاعات أخرى
+  gosiApplicable  Boolean  @default(true) // خاضع للتأمينات الاجتماعية
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  payslips        Payslip[]
+
+  @@index([companyId, isActive])
+}
+
+model PayrollRun {
+  id          String    @id @default(cuid())
+  companyId   String
+  company     Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  month       Int // 1-12
+  year        Int
+  status      String    @default("draft") // draft | processed
+  note        String?
+  processedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  payslips    Payslip[]
+
+  @@unique([companyId, month, year])
+}
+
+model Payslip {
+  id           String    @id @default(cuid())
+  runId        String
+  run          PayrollRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  employeeId   String
+  employee     Employee  @relation(fields: [employeeId], references: [id])
+  baseSalary   Float     @default(0)
+  allowances   Float     @default(0) // مجموع البدلات
+  deductions   Float     @default(0) // استقطاعات أخرى
+  gosiEmployee Float     @default(0) // حصة الموظف من التأمينات
+  gosiEmployer Float     @default(0) // حصة الشركة من التأمينات
+  netPay       Float     @default(0) // الصافي المستحق
+  createdAt    DateTime  @default(now())
+
+  @@unique([runId, employeeId])
+}
+
+// ============ الأصول الثابتة والإهلاك ============
+
+model FixedAsset {
+  id             String   @id @default(cuid())
+  companyId      String
+  company        Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name           String
+  category       String   @default("معدات")
+  purchaseDate   DateTime @default(now())
+  cost           Float
+  salvageValue   Float    @default(0) // القيمة التخريدية
+  usefulLifeYears Int     @default(5) // العمر الإنتاجي بالسنوات
+  method         String   @default("straight-line") // القسط الثابت
+  accumulated    Float    @default(0) // مجمع الإهلاك حتى الآن
+  status         String   @default("active") // active | disposed
+  disposedAt     DateTime?
+  disposalAmount Float?
+  note           String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  entries        DepreciationEntry[]
+
+  @@index([companyId, status])
+}
+
+model DepreciationEntry {
+  id        String      @id @default(cuid())
+  companyId String
+  company   Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  assetId   String
+  asset     FixedAsset  @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  period    String // "2026-10"
+  amount    Float
+  date      DateTime    @default(now())
+
+  @@unique([assetId, period])
+  @@index([companyId, period])
+}
+
+// ============ الفواتير المتكررة ============
+
+model RecurringInvoice {
+  id         String   @id @default(cuid())
+  companyId  String
+  company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  contactId  String? // مرجع منطقي بدون FK لتجنب توسيع نموذج جهات الاتصال
+  frequency  String   @default("monthly") // monthly | quarterly | yearly
+  nextRunAt  DateTime
+  taxRate    Float    @default(15)
+  discount   Float    @default(0)
+  paymentMethod String @default("credit")
+  note       String?
+  isActive   Boolean  @default(true)
+  lastRunAt  DateTime?
+  generatedCount Int  @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  items      RecurringItem[]
+
+  @@index([companyId, isActive])
+}
+
+model RecurringItem {
+  id          String    @id @default(cuid())
+  recurringId String
+  recurring   RecurringInvoice @relation(fields: [recurringId], references: [id], onDelete: Cascade)
+  productId   String?
+  name        String
+  qty         Float     @default(1)
+  unitPrice   Float     @default(0)
+
+  @@index([recurringId])
+}
+
+// ============ الفروع (تعدد نقاط البيع والمنافذ) ============
+
+model Branch {
+  id        String   @id @default(cuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name      String
+  code      String // رمز قصير للفرع (يظهر في أرقام الفواتير)
+  kind      String   @default("store") // store | warehouse | kiosk
+  phone     String?
+  address   String?
+  city      String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  sales     Sale[]
+  purchases Purchase[]
+  shifts    PosShift[]
+  warehouses Warehouse[]
+
+  @@unique([companyId, code])
+  @@index([companyId])
+}
+
+// ============ ورديات الكاشير (فتح/إغلاق الصندوق) ============
+
+model PosShift {
+  id         String    @id @default(cuid())
+  companyId  String
+  company    Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  branchId   String?
+  branch     Branch?   @relation(fields: [branchId], references: [id])
+  userId     String?
+  openedAt   DateTime  @default(now())
+  closedAt   DateTime?
+  status     String    @default("open") // open | closed
+  openingCash Float     @default(0) // رصيد افتتاحي
+  countedCash Float? // المقبوضات النقدية المحصورة عند الإغلاق
+  expectedCash Float? // النقدي المتوقع من النظام
+  cashDifference Float? // فرق الصندوق
+  salesCount Int       @default(0)
+  salesTotal Float     @default(0)
+  note       String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([companyId, status])
+  @@index([branchId])
+}
+
+// ============ المستودعات (تعدد المستودعات) ============
+
+model Warehouse {
+  id        String    @id @default(cuid())
+  companyId String
+  company   Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  branchId  String? // الفرع التابع له (اختياري)
+  branch    Branch?   @relation(fields: [branchId], references: [id])
+  name      String
+  code      String // رمز قصير (WH01)
+  location  String? // الموقع/العنوان
+  keeper    String? // أمين المستودع
+  isActive  Boolean   @default(true)
+  isDefault Boolean   @default(false) // المستودع الافتراضي للعمليات
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  stockLevels StockLevel[]
+  movements   StockMovement[]
+  sales     Sale[]
+  purchases Purchase[]
+
+  @@unique([companyId, code])
+  @@index([companyId])
+  @@index([branchId])
+}
+
+// رصيد كل صنف في كل مستودع
+model StockLevel {
+  id          String    @id @default(cuid())
+  companyId   String
+  company     Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  productId   String
+  product     Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  warehouseId String
+  warehouse   Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  quantity    Float     @default(0)
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([productId, warehouseId])
+  @@index([companyId, warehouseId])
+}
+
+// سجل حركات المخزون (تدقيق كامل لكل دخول وخروج وتحويل)
+model StockMovement {
+  id           String    @id @default(cuid())
+  companyId    String
+  company      Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  productId    String
+  product      Product   @relation(fields: [productId], references: [id])
+  warehouseId  String
+  warehouse    Warehouse @relation(fields: [warehouseId], references: [id])
+  type         String // purchase | sale | sale-return | purchase-return | transfer-in | transfer-out | adjustment
+  qty          Float // موجب = دخول، سالب = خروج
+  balanceAfter Float     @default(0) // رصيد الصنف بالمستودع بعد الحركة
+  refType      String? // sale | purchase | transfer | adjustment
+  refNo        String? // رقم المستند المرجعي
+  note         String?
+  userId       String?
+  createdAt    DateTime  @default(now())
+
+  @@index([companyId, createdAt])
+  @@index([productId, warehouseId])
+}
+
+// ============ سجل التدقيق (Audit Log) ============
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  companyId String? // بدون علاقة FK — سجل مستقل للتحقيق
+  userId    String?
+  username  String? // لقطة اسم المستخدم وقت الحدث
+  action    String // مثال: sale.create | payment.create | settings.update
+  entity    String?
+  entityId  String?
+  details   String? // JSON نصي
+  createdAt DateTime @default(now())
+
+  @@index([companyId, createdAt])
+}
+
+// ============ الإشعارات ============
+
+model Notification {
+  id        String   @id @default(cuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  userId    String? // موجّهة لمستخدم محدد — أو null للجميع
+  title     String
+  message   String
+  type      String   @default("system") // system | invoice | payment | purchase | stock | vat | support | subscription
+  link      String? // ViewKey للتنقل عند النقر
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([companyId, isRead, createdAt])
+}
+
+// ============ الدعم الفني (التذاكر) ============
+
+model SupportTicket {
+  id        String           @id @default(cuid())
+  companyId String
+  company   Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User             @relation(fields: [userId], references: [id])
+  subject   String
+  category  String           @default("general") // general | billing | technical | zatca | accounting
+  priority  String           @default("normal") // low | normal | high
+  status    String           @default("open") // open | answered | resolved | closed
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+  messages  SupportMessage[]
+
+  @@index([companyId, status])
+}
+
+model SupportMessage {
+  id        String        @id @default(cuid())
+  ticketId  String
+  ticket    SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  senderId  String?
+  isStaff   Boolean       @default(false)
+  message   String
+  createdAt DateTime      @default(now())
+
+  @@index([ticketId])
+}
+
+// ============ البريد الإلكتروني والواتساب (سجل الرسائل) ============
+
+model EmailLog {
+  id        String   @id @default(cuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  toEmail   String
+  subject   String
+  body      String
+  status    String   @default("simulated") // sent | simulated | failed
+  error     String?
+  createdAt DateTime @default(now())
+
+  @@index([companyId, createdAt])
+}
+
+model WhatsAppLog {
+  id        String   @id @default(cuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  toPhone   String
+  message   String
+  status    String   @default("simulated") // sent | simulated | failed
+  error     String?
+  createdAt DateTime @default(now())
+
+  @@index([companyId, createdAt])
+}
+
+// ============ المساعد الذكي (المحادثات) ============
+
+model AiConversation {
+  id        String     @id @default(cuid())
+  companyId String
+  company   Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  userId    String
+  title     String     @default("محادثة جديدة")
+  createdAt DateTime   @default(now())
+  messages  AiMessage[]
+
+  @@index([companyId, userId])
+}
+
+model AiMessage {
+  id             String         @id @default(cuid())
+  conversationId String
+  conversation   AiConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  role           String // user | assistant
+  content        String
+  createdAt      DateTime       @default(now())
+
+  @@index([conversationId])
+}
+
+// ============ الإقرار الضريبي (VAT Return) ============
+
+model VatDeclaration {
+  id           String   @id @default(cuid())
+  companyId    String
+  company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  periodStart  DateTime
+  periodEnd    DateTime
+  status       String   @default("filed") // filed
+  // المبيعات
+  salesAmount  Float    @default(0) // وعاء المبيعات الخاضعة
+  outputVat    Float    @default(0) // ضريبة المخرجات
+  // المشتريات
+  purchasesAmount Float @default(0) // وعاء المشتريات الخاضعة
+  inputVat     Float    @default(0) // ضريبة المدخلات
+  netVat       Float    @default(0) // الصافي المستحق/المسترد
+  filedAt      DateTime @default(now())
+  notes        String?
+
+  @@unique([companyId, periodStart, periodEnd])
+}
+
+// ============ الصفحات التسويقية العامة (تُدار من لوحة تحكم المنصة) ============
+
+model MarketingPage {
+  id           String   @id @default(cuid())
+  slug         String   @unique
+  title        String
+  subtitle     String?
+  kind         String   @default("page") // home | features | pricing | about | faq | contact | page
+  status       String   @default("published") // published | draft
+  showInNav    Boolean  @default(true)
+  navLabel     String?
+  order        Int      @default(0)
+  heroBadge    String?
+  heroTitle    String?
+  heroSubtitle String?
+  ctaLabel     String? // نص زر الإجراء الرئيسي (افتراضياً: ابدأ مجاناً)
+  sections     String   @default("[]") // JSON: مصفوفة أقسام ديناميكية
+  views        Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([status, order])
+}

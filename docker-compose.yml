@@ -1,0 +1,38 @@
+# ============================================================
+#  نظام ERP محاسبي سحابي — Docker Compose
+#  التشغيل:   docker compose up -d --build
+#  اللوجات:   docker compose logs -f app
+#  التحديث:   docker compose up -d --build
+#  الإيقاف:   docker compose down
+# ============================================================
+
+services:
+  app:
+    build: .
+    container_name: erp-saas
+    ports:
+      - "3000:3000" # اليسار: المنفذ على الخادم | اليمين: داخل الحاوية
+    # قراءة المتغيرات من ملف ‎.env الموجود بجوار هذا الملف
+    env_file:
+      - .env
+    restart: unless-stopped
+    volumes:
+      # حفظ قاعدة البيانات خارج الحاوية حتى لا تُفقد عند إعادة البناء
+      - ./db:/app/db
+      # ملاحظة مهمة: عند استخدام Docker يجب أن يكون DATABASE_URL
+      # في ملف ‎.env بالمسار الداخلي للحاوية:
+      #   DATABASE_URL=file:/app/db/custom.db
+      # ولإعادة التوليد بالمسار الصحيح:
+      #   bun run env:generate --force --db-path /app/db/custom.db
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api >/dev/null 2>&1 || exit 1"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    # لتقليل إعادة تشغيل PM2 داخل الحاوية إن استخدمتها مستقبلاً
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
